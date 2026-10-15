@@ -23,10 +23,9 @@ DATA_URL = (
 
 st.title("🌡️ 기온 예측기")
 st.write(
-    "서울의 과거 연평균기온을 바탕으로 "
-    "연도별 기온의 추세를 살펴보고 예상 기온을 계산합니다."
+    "서울의 과거 연평균기온을 바탕으로 기온의 추세를 살펴보고 "
+    "선택한 연도의 예상 기온을 계산합니다."
 )
-
 
 # -----------------------------
 # 데이터 불러오기 및 정리
@@ -35,21 +34,17 @@ st.write(
 def load_data():
     df = pd.read_csv(DATA_URL, encoding="utf-8")
 
-    # 날짜와 기온 데이터 정리
     df["날짜"] = pd.to_datetime(
-        df["날짜"], errors="coerce"
+        df["날짜"].astype(str).str.strip(),
+        errors="coerce"
     )
     df["평균기온"] = pd.to_numeric(
         df["평균기온"], errors="coerce"
     )
 
-    # 날짜 또는 평균기온이 없는 행 제외
     df = df.dropna(subset=["날짜", "평균기온"]).copy()
-
-    # 연도 추출
     df["연도"] = df["날짜"].dt.year
 
-    # 연도별 평균기온과 실제 관측일 수 계산
     yearly = (
         df.groupby("연도")
         .agg(
@@ -59,7 +54,7 @@ def load_data():
         .reset_index()
     )
 
-    # 2025년까지이며 관측일이 300일 이상인 해만 사용
+    # 2025년까지, 관측일이 300일 이상인 연도만 사용
     yearly = yearly[
         (yearly["연도"] <= 기준연도)
         & (yearly["관측일수"] >= 300)
@@ -83,25 +78,21 @@ if len(yearly) < 2:
     st.error("회귀 직선을 계산하기에 유효한 연도가 부족합니다.")
     st.stop()
 
-
 # -----------------------------
 # 선형 회귀 계산
 # -----------------------------
-# 1908년을 기준으로 지난 연수를 독립 변수로 사용
-x = yearly["연도"].to_numpy(dtype=float) - 기준연수
+x = yearly["연도"].to_numpy(dtype=float)
 y = yearly["연평균기온"].to_numpy(dtype=float)
 
-# 최소제곱법으로 직선 계산: y = a*x + b
+# 연도를 그대로 사용하여 최소제곱 회귀 직선 계산
 a, b = np.polyfit(x, y, 1)
 
-# 피어슨 상관계수
+# 연도와 연평균기온 사이의 피어슨 상관계수
 상관계수 = np.corrcoef(x, y)[0, 1]
 
-# 회귀에 사용한 연도 정보
 연도개수 = len(yearly)
 시작연도 = int(yearly["연도"].min())
 끝연도 = int(yearly["연도"].max())
-
 
 # -----------------------------
 # 회귀 분석 결과
@@ -123,14 +114,13 @@ st.caption(
 
 st.write(
     f"**회귀 직선:** 연평균기온 = "
-    f"{a:.5f} × (연도 − {기준연수}) + {b:.3f}"
+    f"{a:.5f} × 연도 + ({b:.3f})"
 )
 
 st.write(
     f"**연간 추세:** 연도가 1년 증가할 때 "
     f"회귀 직선의 예상 기온은 {a:+.4f}℃ 변합니다."
 )
-
 
 # -----------------------------
 # 산점도와 회귀 직선
@@ -139,7 +129,7 @@ st.subheader("📈 연도별 평균기온과 회귀 직선")
 
 fig = go.Figure()
 
-# 실제 연평균기온 산점도
+# 실제 연평균기온
 fig.add_trace(
     go.Scatter(
         x=yearly["연도"],
@@ -157,9 +147,9 @@ fig.add_trace(
     )
 )
 
-# 회귀 직선
+# 회귀 직선은 관측 기간에 대해서만 표시
 line_x = np.array([시작연도, 끝연도], dtype=float)
-line_y = a * (line_x - 기준연수) + b
+line_y = a * line_x + b
 
 fig.add_trace(
     go.Scatter(
@@ -187,7 +177,7 @@ fig.update_layout(
         xanchor="left",
         x=0
     ),
-    margin=dict(l=20, r=20, t=30, b=20)
+    margin=dict(l=20, r=20, t=40, b=20)
 )
 
 fig.update_xaxes(dtick=10)
@@ -197,9 +187,8 @@ st.plotly_chart(fig, use_container_width=True)
 
 st.caption(
     "점 하나는 해당 연도의 연평균기온을 나타냅니다. "
-    "직선은 선택된 관측 자료에 최소제곱법을 적용한 결과입니다."
+    "직선은 조건에 맞는 연도별 평균기온으로 계산했습니다."
 )
-
 
 # -----------------------------
 # 연도 선택 및 예상 기온
@@ -214,16 +203,17 @@ st.subheader("🌡️ 연도별 예상 기온")
     step=1
 )
 
-예상기온 = a * (선택연도 - 기준연수) + b
+예상기온 = a * 선택연도 + b
 
 st.metric(
     label=f"{선택연도}년 예상 연평균기온",
     value=f"{예상기온:.2f}℃"
 )
 
+# 수정된 경고 및 안내 부분
 if 선택연도 < 시작연도 or 선택연도 > 끝연도:
     st.warning(
-        f"{선택한 연도는 회귀에 사용한 기간 "
+        f"선택한 연도는 회귀에 사용한 기간 "
         f"{시작연도}~{끝연도}년 밖에 있습니다. "
         "이 값은 회귀 직선을 연장한 외삽값이며, "
         "실제 기온을 보장하지 않습니다."
@@ -235,11 +225,16 @@ else:
         "회귀 직선에서 계산한 값입니다."
     )
 
-
 # -----------------------------
-# 사용한 연도별 데이터 확인
+# 사용한 연도별 데이터
 # -----------------------------
 with st.expander("회귀에 사용한 연도별 데이터 보기"):
     표시데이터 = yearly.copy()
-    표시데이터["연평균기온"] = 표시데이터["연평균기온"].round(2)
-    st.dataframe(표시데이터, use_container_width=True, hide_index=True)
+    표시데이터["연평균기온"] = (
+        표시데이터["연평균기온"].round(2)
+    )
+    st.dataframe(
+        표시데이터,
+        use_container_width=True,
+        hide_index=True
+    )
